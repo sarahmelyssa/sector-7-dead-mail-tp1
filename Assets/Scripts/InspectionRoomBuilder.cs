@@ -285,17 +285,17 @@ public class InspectionRoomBuilder : MonoBehaviour
         quotaText.outlineWidth = 0.20f;
         ConfigureTextBox(quotaText, new Vector2(4.28f, 0.38f), TextAlignmentOptions.Left);
 
-        TextMeshPro stateText = CreateWorldText("ProcessingPanel_StateText", monitorRoot.transform, "CAIXA 30s", new Vector3(-2.06f, 1.53f, 2.944f), panelTextRotation, 0.430f, new Color(0.820f, 1.000f, 0.860f));
-        stateText.characterSpacing = 0.6f;
+        TextMeshPro stateText = CreateWorldText("ProcessingPanel_StateText", monitorRoot.transform, "CAIXA 60s", new Vector3(-2.06f, 1.50f, 2.944f), panelTextRotation, 0.520f, new Color(0.820f, 1.000f, 0.860f));
+        stateText.characterSpacing = 0.8f;
         stateText.fontStyle = FontStyles.Bold;
-        stateText.outlineWidth = 0.20f;
-        ConfigureTextBox(stateText, new Vector2(4.28f, 0.38f), TextAlignmentOptions.Left);
+        stateText.outlineWidth = 0.24f;
+        ConfigureTextBox(stateText, new Vector2(4.28f, 0.46f), TextAlignmentOptions.Left);
 
-        TextMeshPro feedbackText = CreateWorldText("ProcessingPanel_ErrorsText", monitorRoot.transform, "ERROS 0/3", new Vector3(-2.06f, 1.18f, 2.944f), panelTextRotation, 0.430f, new Color(0.930f, 0.850f, 1.000f));
-        feedbackText.characterSpacing = 0.6f;
+        TextMeshPro feedbackText = CreateWorldText("ProcessingPanel_ErrorsText", monitorRoot.transform, "ERROS 0/3", new Vector3(-2.06f, 1.13f, 2.944f), panelTextRotation, 0.500f, new Color(0.930f, 0.850f, 1.000f));
+        feedbackText.characterSpacing = 0.8f;
         feedbackText.fontStyle = FontStyles.Bold;
-        feedbackText.outlineWidth = 0.20f;
-        ConfigureTextBox(feedbackText, new Vector2(4.28f, 0.38f), TextAlignmentOptions.Left);
+        feedbackText.outlineWidth = 0.24f;
+        ConfigureTextBox(feedbackText, new Vector2(4.28f, 0.44f), TextAlignmentOptions.Left);
 
         Renderer[] progressBlocks = new Renderer[10];
         for (int i = 0; i < progressBlocks.Length; i++)

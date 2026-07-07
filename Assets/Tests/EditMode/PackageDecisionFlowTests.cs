@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -125,6 +126,38 @@ public class PackageDecisionFlowTests
     }
 
     [Test]
+    public void TimeoutCountsAsWrongDecision()
+    {
+        GameManager gameManager = CreateGameManager();
+        gameManager.SetQuotaRequired(10);
+
+        var decisionObject = new GameObject("DecisionManager Test Host");
+        createdObjects.Add(decisionObject);
+        DecisionManager decisionManager = decisionObject.AddComponent<DecisionManager>();
+
+        bool correct = decisionManager.SubmitTimeout(CreateLegacyPackage(new List<string>()));
+
+        Assert.That(correct, Is.False);
+        Assert.That(gameManager.WrongDecisionCount, Is.EqualTo(1));
+        Assert.That(gameManager.CurrentState, Is.EqualTo(GameState.Playing));
+    }
+
+    [Test]
+    public void ThreeWrongDecisionsTriggerGameOver()
+    {
+        GameManager gameManager = CreateGameManager();
+        gameManager.SetQuotaRequired(10);
+        PackageData cleanPackage = CreateLegacyPackage(new List<string>());
+
+        gameManager.RegisterPackageDecision(cleanPackage, accepted: false);
+        gameManager.RegisterPackageDecision(cleanPackage, accepted: false);
+        gameManager.RegisterPackageDecision(cleanPackage, accepted: false);
+
+        Assert.That(gameManager.WrongDecisionCount, Is.EqualTo(3));
+        Assert.That(gameManager.CurrentState, Is.EqualTo(GameState.GameOver));
+    }
+
+    [Test]
     public void ShiftProgressAlwaysStaysOnSingleNight()
     {
         NightManager nightManager = CreateNightManager();
@@ -168,6 +201,47 @@ public class PackageDecisionFlowTests
 
         Assert.That(nightManager.CurrentSettings.quotaRequired, Is.EqualTo(10));
         Assert.That(nightManager.CurrentSettings.shiftDuration, Is.EqualTo(360f));
+    }
+
+    [Test]
+    public void AssetPackageManifestMatchesDecisionRules()
+    {
+        List<ManifestItem> manifestItems = LoadManifestItems();
+        List<PackageData> packages = PackageCatalog.CreateAssetPackages();
+
+        Assert.That(packages, Has.Count.EqualTo(manifestItems.Count));
+
+        var manifestById = new Dictionary<string, ManifestItem>();
+        foreach (ManifestItem item in manifestItems)
+        {
+            manifestById[item.id] = item;
+        }
+
+        foreach (PackageData package in packages)
+        {
+            Assert.That(manifestById.ContainsKey(package.id), Is.True, package.id + " is missing from the manifest.");
+            ManifestItem manifestItem = manifestById[package.id];
+            package.RefreshValidationReasons();
+
+            bool calculatedReject = HasAnyManifestMismatch(manifestItem);
+            Assert.That(package.ShouldReject, Is.EqualTo(calculatedReject), package.id + " calculated rejection does not match report/box fields.");
+            Assert.That(package.ShouldReject, Is.EqualTo(manifestItem.shouldReject), package.id + " manifest shouldReject flag does not match gameplay decision.");
+
+            bool acceptIsCorrect = !package.ShouldReject;
+            bool rejectIsCorrect = package.ShouldReject;
+            Assert.That(acceptIsCorrect, Is.EqualTo(!manifestItem.shouldReject), package.id + " accept button expectation is inverted.");
+            Assert.That(rejectIsCorrect, Is.EqualTo(manifestItem.shouldReject), package.id + " reject button expectation is inverted.");
+        }
+    }
+
+    [Test]
+    public void AssetPackageManifestFilesExist()
+    {
+        foreach (ManifestItem item in LoadManifestItems())
+        {
+            Assert.That(File.Exists(ToAssetResourceFilePath(item.reportImage)), Is.True, item.id + " report image is missing.");
+            Assert.That(File.Exists(ToAssetResourceFilePath(item.boxLabel)), Is.True, item.id + " box label image is missing.");
+        }
     }
 
     private void AssertDecision(PackageData package, bool accepted, bool expectedCorrect)
@@ -228,4 +302,71 @@ public class PackageDecisionFlowTests
             rejectionReasons
         );
     }
+
+    private static List<ManifestItem> LoadManifestItems()
+    {
+        TextAsset manifest = Resources.Load<TextAsset>("PackageInspectionAssets/package_manifest_30");
+        Assert.That(manifest, Is.Not.Null, "Package manifest could not be loaded from Resources.");
+
+        ManifestWrapper wrapper = JsonUtility.FromJson<ManifestWrapper>("{\"items\":" + manifest.text + "}");
+        Assert.That(wrapper, Is.Not.Null);
+        Assert.That(wrapper.items, Is.Not.Null);
+        return new List<ManifestItem>(wrapper.items);
+    }
+
+    private static bool HasAnyManifestMismatch(ManifestItem item)
+    {
+        return !Matches(item.report.shape, item.box.shape)
+            || !Matches(item.report.barcode, item.box.barcode)
+            || !Matches(item.report.logo, item.box.logo)
+            || !Matches(item.report.tapeColor, item.box.tapeColor)
+            || !Matches(item.report.destination, item.box.destination)
+            || !Matches(item.report.weight, item.box.weight);
+    }
+
+    private static bool Matches(string left, string right)
+    {
+        return string.Equals(Clean(left), Clean(right), System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Clean(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
+    }
+
+    private static string ToAssetResourceFilePath(string manifestPath)
+    {
+        return Path.Combine("Assets/Resources/PackageInspectionAssets", manifestPath).Replace("\\", "/");
+    }
+
+#pragma warning disable 0649
+    [System.Serializable]
+    private class ManifestWrapper
+    {
+        public ManifestItem[] items;
+    }
+
+    [System.Serializable]
+    private class ManifestItem
+    {
+        public string id;
+        public string difficulty;
+        public string reportImage;
+        public string boxLabel;
+        public ManifestSide report;
+        public ManifestSide box;
+        public bool shouldReject;
+    }
+
+    [System.Serializable]
+    private class ManifestSide
+    {
+        public string shape;
+        public string barcode;
+        public string logo;
+        public string tapeColor;
+        public string destination;
+        public string weight;
+    }
+#pragma warning restore 0649
 }
