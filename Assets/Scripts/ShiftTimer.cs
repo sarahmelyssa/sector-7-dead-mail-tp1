@@ -17,12 +17,10 @@ public class ShiftTimer : MonoBehaviour
     private PackageConveyor packageConveyor;
     private bool shiftEnded;
     private bool timerRunning = true;
-    private int lastBellHour;
 
     private void Awake()
     {
         CurrentTime = totalShiftDuration;
-        lastBellHour = 0;
         gameManager = Object.FindFirstObjectByType<GameManager>();
     }
 
@@ -61,7 +59,6 @@ public class ShiftTimer : MonoBehaviour
         CurrentTime = Mathf.Max(0f, CurrentTime - Time.deltaTime);
         UpdateTimerText();
         UpdateStatusText();
-        UpdateHourlyBell();
 
         if (CurrentTime <= 0f)
         {
@@ -86,7 +83,6 @@ public class ShiftTimer : MonoBehaviour
         totalShiftDuration = Mathf.Max(1f, duration);
         CurrentTime = totalShiftDuration;
         shiftEnded = false;
-        lastBellHour = 0;
         UpdateTimerText();
     }
 
@@ -161,29 +157,6 @@ public class ShiftTimer : MonoBehaviour
         }
 
         return "WAITING";
-    }
-
-    private void UpdateHourlyBell()
-    {
-        int currentHour = GetCurrentShiftHour();
-        if (currentHour <= lastBellHour || currentHour <= 0)
-        {
-            return;
-        }
-
-        lastBellHour = currentHour;
-        AudioManager.Instance?.PlayClockBell();
-    }
-
-    private int GetCurrentShiftHour()
-    {
-        float duration = Mathf.Max(1f, totalShiftDuration);
-        float remaining = Mathf.Clamp(CurrentTime, 0f, duration);
-        float elapsed = Mathf.Max(0f, duration - remaining);
-        float progress = Mathf.Clamp01(elapsed / duration);
-        return progress >= 0.999f
-            ? 6
-            : Mathf.Clamp(Mathf.FloorToInt(progress * 6f), 0, 5);
     }
 
     private void CreateDefaultUiIfNeeded()

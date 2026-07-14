@@ -10,6 +10,13 @@ using UnityEditor;
 
 public class CorridorFlashlightAnomalyController : MonoBehaviour
 {
+    private enum CorridorCueType
+    {
+        None,
+        Creature,
+        Eyes
+    }
+
     [Header("Flashlight")]
     [SerializeField] private Light flashlight = null;
     [SerializeField] private float flashlightIntensity = 38f;
@@ -28,9 +35,15 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
     [SerializeField] private GameObject eyesRoot = null;
     [SerializeField] private Vector3 anomalyPosition = new Vector3(0.52f, 1.02f, -9.75f);
     [SerializeField] private Vector3 corridorSoundPosition = new Vector3(0f, 1.24f, -9.90f);
+    [SerializeField] private Vector2 anomalyXRange = new Vector2(-0.62f, 0.62f);
+    [SerializeField] private Vector2 creatureYRange = new Vector2(0.72f, 1.05f);
+    [SerializeField] private Vector2 eyesYRange = new Vector2(1.10f, 1.56f);
+    [SerializeField] private Vector2 anomalyZRange = new Vector2(-7.35f, -10.15f);
     [SerializeField] private float anomalyVisibleDuration = 0.48f;
-    [SerializeField] private float anomalyActiveWindow = 12f;
-    [SerializeField] private float lateShiftActiveWindow = 4.5f;
+    [SerializeField] private float anomalyActiveWindow = 16f;
+    [SerializeField] private float lateShiftActiveWindow = 9.5f;
+    [SerializeField] private float creatureActiveWindow = 7.25f;
+    [SerializeField] private float lateShiftCreatureActiveWindow = 3.65f;
     [SerializeField] private int minimumDecisionsBeforeFirstCue = 2;
     [SerializeField] private int maxAnomalyCuesPerShift = 10;
     [SerializeField] private float jumpscareProgressThreshold = 0.55f;
@@ -50,6 +63,7 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
     [SerializeField] private AudioClip corridorHitClip = null;
     [SerializeField] private AudioClip slowTensionClip = null;
     [SerializeField] private AudioClip anomalyLaughClip = null;
+    [SerializeField] private AudioClip[] anomalyLaughClips = null;
     [SerializeField] private AudioClip jumpscareClip = null;
     [SerializeField, Range(0f, 1f)] private float corridorVoiceMinVolume = 0.018f;
     [SerializeField, Range(0f, 1f)] private float corridorVoiceMaxVolume = 0.32f;
@@ -77,6 +91,12 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
     private Coroutine anomalyRoutine;
     private Coroutine jumpscareRoutine;
     private FlickeringLight[] corridorPurpleFlickers;
+    private Transform[] anomalyPartTransforms;
+    private Vector3[] anomalyPartBasePositions;
+    private Vector3[] anomalyPartBaseScales;
+    private Quaternion[] anomalyPartBaseRotations;
+    private Renderer[] anomalyRenderers;
+    private Light anomalyGlowLight;
     private Transform[] eyeTransforms;
     private Vector3[] eyeBaseScales;
     private float nextCueTime = -1f;
@@ -92,6 +112,7 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
     private bool anomalyVisible;
     private bool jumpscareTriggered;
     private bool lookedBackDuringCurrentCue;
+    private CorridorCueType activeCueType = CorridorCueType.None;
     private int resolvedDecisionCount;
     private int anomalyCueCount;
     private int ignoredCueCount;
@@ -171,9 +192,13 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
             SetFlashlight(!flashlightOn, true);
         }
 
-        UpdateAnomalyEyes();
+        UpdateActiveAnomalyVisuals();
 
-        if (flashlightOn && eyesVisible && IsAnomalyInsideFlashlightCone())
+        if (flashlightOn && anomalyReady && activeCueType == CorridorCueType.Creature && IsAnomalyInsideFlashlightCone())
+        {
+            ResolveCreatureAnomaly();
+        }
+        else if (flashlightOn && anomalyReady && activeCueType == CorridorCueType.Eyes && eyesVisible && IsAnomalyInsideFlashlightCone())
         {
             ResolveEyesAnomaly();
         }
@@ -187,11 +212,12 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         {
             SetFlashlight(false, false);
             HideEyes();
+            HideCreature();
             return;
         }
 
         MarkCueCheckedFromBehind();
-        UpdateAnomalyEyes();
+        UpdateActiveAnomalyVisuals();
     }
 
     private void OnViewTurnStarted(bool turningBack)
@@ -210,8 +236,6 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         {
             lookedBackDuringCurrentCue = true;
         }
-
-        StopCorridorVoiceLoop();
     }
 
     private void OnDecisionResolved(bool correct)
@@ -239,23 +263,8 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         {
             if (Time.time >= anomalyReadyUntil)
             {
-                if (!lookedBackDuringCurrentCue)
-                {
-                    TriggerJumpscareGameOver();
-                    return;
-                }
-
-                ignoredCueCount++;
-                if (ShouldTriggerJumpscareFromIgnoredCue())
-                {
-                    TriggerJumpscareGameOver();
-                    return;
-                }
-
-                anomalyReady = false;
-                StopCorridorHitCue();
-                HideEyes();
-                ScheduleNextCue(repeatCueDelayRange);
+                TriggerJumpscareGameOver();
+                return;
             }
 
             return;
@@ -277,27 +286,51 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
     {
         anomalyReady = true;
         anomalyCueCount++;
+        activeCueType = PickNextCueType();
+        anomalyPosition = PickAnomalyPosition(activeCueType);
+        corridorSoundPosition = anomalyPosition + new Vector3(0f, 0.22f, 0f);
         anomalyReadyUntil = Time.time + GetCurrentAnomalyActiveWindow();
         anomalyCueStartedAt = Time.time;
         lookedBackDuringCurrentCue = viewSwitcher != null && viewSwitcher.IsLookingBack;
         nextCueTime = -1f;
+        HideEyes();
+        HideCreature();
+        StopCorridorVoiceLoop();
+        StopCorridorHitCue();
+        StopSlowTensionLoop();
 
         float pressure = GetDifficultyProgress();
-        if (corridorHitClip != null)
+        if (activeCueType == CorridorCueType.Creature)
         {
-            PlayCorridorHitCue(corridorHitClip, Mathf.Lerp(0.58f, 0.92f, pressure), Random.Range(0.86f, 1.02f));
+            AudioClip hitClip = corridorHitClip != null ? corridorHitClip : corridorNoiseClip != null ? corridorNoiseClip : generatedCorridorNoiseClip;
+            PlayCorridorHitCue(hitClip, Mathf.Lerp(0.70f, 1.0f, pressure), Random.Range(0.86f, 1.02f));
         }
         else
         {
-            AudioClip clip = Random.value > 0.45f
-                ? (corridorWhisperClip != null ? corridorWhisperClip : generatedCorridorWhisperClip)
-                : (corridorNoiseClip != null ? corridorNoiseClip : generatedCorridorNoiseClip);
-            PlayCorridorClip(clip, Mathf.Lerp(0.70f, 1.04f, pressure), Random.Range(0.82f, 1.06f));
+            AudioClip whisperClip = corridorWhisperClip != null ? corridorWhisperClip : generatedCorridorWhisperClip;
+            PlayCorridorClip(whisperClip, Mathf.Lerp(0.36f, 0.62f, pressure), Random.Range(0.92f, 1.05f));
         }
 
-        HorrorEffectsManager.Instance?.PlayVhsDistortion(0.26f + pressure * 0.22f, 0.12f + pressure * 0.36f);
+        HorrorEffectsManager.Instance?.PlayVhsDistortion(0.10f + pressure * 0.08f, 0.08f + pressure * 0.10f);
 
-        UpdateAnomalyEyes();
+        UpdateActiveAnomalyVisuals();
+    }
+
+    private CorridorCueType PickNextCueType()
+    {
+        float pressure = GetDifficultyProgress();
+        float creatureChance = Mathf.Lerp(0.58f, 0.46f, pressure);
+        return Random.value <= creatureChance ? CorridorCueType.Creature : CorridorCueType.Eyes;
+    }
+
+    private Vector3 PickAnomalyPosition(CorridorCueType cueType)
+    {
+        Vector2 yRange = cueType == CorridorCueType.Creature ? creatureYRange : eyesYRange;
+        return new Vector3(
+            Random.Range(Mathf.Min(anomalyXRange.x, anomalyXRange.y), Mathf.Max(anomalyXRange.x, anomalyXRange.y)),
+            Random.Range(Mathf.Min(yRange.x, yRange.y), Mathf.Max(yRange.x, yRange.y)),
+            Random.Range(Mathf.Min(anomalyZRange.x, anomalyZRange.y), Mathf.Max(anomalyZRange.x, anomalyZRange.y))
+        );
     }
 
     private void ResolveEyesAnomaly()
@@ -310,30 +343,69 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         anomalyRoutine = StartCoroutine(ResolveEyesAnomalyRoutine());
     }
 
+    private void ResolveCreatureAnomaly()
+    {
+        if (anomalyRoutine != null)
+        {
+            StopCoroutine(anomalyRoutine);
+        }
+
+        anomalyRoutine = StartCoroutine(ResolveCreatureAnomalyRoutine());
+    }
+
     private IEnumerator ResolveEyesAnomalyRoutine()
     {
         anomalyReady = false;
         ignoredCueCount = 0;
         anomalyVisible = true;
         anomalyReadyUntil = 0f;
+        activeCueType = CorridorCueType.None;
+        HideEyes();
+        HideCreature();
+        StopCorridorHitCue();
+        StopCorridorVoiceLoop();
+        StopSlowTensionLoop();
+
+        PlayCorridorClip(corridorWhisperClip != null ? corridorWhisperClip : generatedCorridorWhisperClip, 0.34f, Random.Range(0.94f, 1.08f));
+
+        yield return new WaitForSeconds(0.12f);
+
+        anomalyVisible = false;
+        anomalyRoutine = null;
+        if (anomalyCueCount < maxAnomalyCuesPerShift)
+        {
+            ScheduleNextCue(repeatCueDelayRange);
+        }
+    }
+
+    private IEnumerator ResolveCreatureAnomalyRoutine()
+    {
+        anomalyReady = false;
+        ignoredCueCount = 0;
+        anomalyVisible = true;
+        anomalyReadyUntil = 0f;
+        activeCueType = CorridorCueType.None;
         HideEyes();
         StopCorridorHitCue();
         StopCorridorVoiceLoop();
         StopSlowTensionLoop();
 
         Vector3 startPosition = anomalyPosition;
-        Vector3 endPosition = anomalyPosition + new Vector3(Random.value > 0.5f ? 0.46f : -0.46f, 0f, -4.8f);
+        Vector3 endPosition = anomalyPosition + new Vector3(Random.value > 0.5f ? 0.42f : -0.42f, -0.07f, -2.15f);
         if (anomalyRoot != null)
         {
             anomalyRoot.transform.position = startPosition;
             anomalyRoot.transform.localScale = Vector3.one;
+            anomalyRoot.transform.localRotation = Quaternion.identity;
+            ResetAnomalyVisualPose();
             anomalyRoot.SetActive(true);
+            AnimateAnomalyVisuals(Time.time, 0.46f);
         }
 
-        PlayCorridorClip(anomalyLaughClip != null ? anomalyLaughClip : generatedAnomalyLaughClip, 0.72f, Random.Range(0.92f, 1.02f));
+        PlayCorridorClip(GetRandomAnomalyLaughClip(), 0.72f, Random.Range(0.94f, 1.05f));
 
         float elapsed = 0f;
-        float duration = Mathf.Clamp(anomalyVisibleDuration, 0.25f, 0.8f);
+        float duration = Mathf.Clamp(anomalyVisibleDuration, 0.34f, 0.62f);
         while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
@@ -341,8 +413,20 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
             float eased = 1f - Mathf.Pow(1f - t, 3f);
             if (anomalyRoot != null)
             {
-                anomalyRoot.transform.position = Vector3.Lerp(startPosition, endPosition, eased);
-                anomalyRoot.transform.localScale = Vector3.Lerp(Vector3.one, Vector3.one * 0.52f, eased);
+                float panic = 1f - t;
+                Vector3 jitter = new Vector3(
+                    Mathf.Sin(elapsed * 57f) * 0.010f,
+                    Mathf.Sin(elapsed * 71f) * 0.006f,
+                    Mathf.Sin(elapsed * 43f) * 0.008f
+                ) * panic;
+                anomalyRoot.transform.position = Vector3.Lerp(startPosition, endPosition, eased) + jitter;
+                anomalyRoot.transform.localRotation = Quaternion.Euler(
+                    Mathf.Sin(elapsed * 31f) * 1.2f * panic,
+                    Mathf.Sin(elapsed * 19f) * 4.0f * panic,
+                    Mathf.Sin(elapsed * 37f) * 2.4f * panic
+                );
+                anomalyRoot.transform.localScale = Vector3.Lerp(Vector3.one, Vector3.one * 0.78f, eased);
+                AnimateAnomalyVisuals(elapsed, Mathf.Lerp(0.46f, 0.04f, eased));
             }
 
             yield return null;
@@ -353,6 +437,8 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
             anomalyRoot.SetActive(false);
             anomalyRoot.transform.position = anomalyPosition;
             anomalyRoot.transform.localScale = Vector3.one;
+            anomalyRoot.transform.localRotation = Quaternion.identity;
+            ResetAnomalyVisualPose();
         }
 
         anomalyVisible = false;
@@ -387,7 +473,21 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
 
     private IEnumerator TriggerJumpscareGameOverRoutine()
     {
-        ShowEyes();
+        CorridorCueType scareType = activeCueType;
+        if (scareType == CorridorCueType.Creature)
+        {
+            if (anomalyRoot != null)
+            {
+                anomalyRoot.transform.position = anomalyPosition + new Vector3(0f, 0f, 0.72f);
+                anomalyRoot.transform.localScale = Vector3.one * 1.35f;
+                anomalyRoot.SetActive(true);
+            }
+        }
+        else
+        {
+            ShowEyes();
+        }
+
         HorrorEffectsManager.Instance?.PlayVhsDistortion(0.72f, 0.78f);
         AudioClip scareClip = jumpscareClip != null
             ? jumpscareClip
@@ -397,6 +497,8 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         yield return new WaitForSecondsRealtime(Mathf.Max(0.1f, jumpscareDelay));
 
         HideEyes();
+        HideCreature();
+        activeCueType = CorridorCueType.None;
         if (gameManager == null)
         {
             gameManager = Object.FindFirstObjectByType<GameManager>();
@@ -415,10 +517,6 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
 
         UpdateFlashlightHum();
         SetCorridorPurpleLights(!flashlightOn);
-        if (flashlightOn)
-        {
-            StopCorridorVoiceLoop();
-        }
 
         if (!flashlightOn)
         {
@@ -430,7 +528,7 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
             PlayFlashlightClick();
         }
 
-        if (flashlightOn && eyesVisible && IsAnomalyInsideFlashlightCone())
+        if (flashlightOn && anomalyReady && activeCueType == CorridorCueType.Eyes && eyesVisible && IsAnomalyInsideFlashlightCone())
         {
             ResolveEyesAnomaly();
         }
@@ -471,6 +569,11 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
 
     private float GetCurrentAnomalyActiveWindow()
     {
+        if (activeCueType == CorridorCueType.Creature)
+        {
+            return Mathf.Lerp(Mathf.Max(1f, creatureActiveWindow), Mathf.Max(1f, lateShiftCreatureActiveWindow), GetDifficultyProgress());
+        }
+
         return Mathf.Lerp(Mathf.Max(1f, anomalyActiveWindow), Mathf.Max(1f, lateShiftActiveWindow), GetDifficultyProgress());
     }
 
@@ -560,29 +663,26 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
     private void UpdateCorridorVoiceLoop()
     {
         EnsureAudioSources();
-        if (corridorVoiceSource == null || corridorVoiceLoopClip == null)
+        AudioClip voiceClip = corridorVoiceLoopClip != null ? corridorVoiceLoopClip : generatedCorridorWhisperClip;
+        if (corridorVoiceSource == null || voiceClip == null)
         {
             return;
         }
 
-        if (flashlightOn || IsCorridorHitPlaying())
+        if (activeCueType != CorridorCueType.Eyes || IsCorridorHitPlaying())
         {
             StopCorridorVoiceLoop();
             return;
         }
 
         bool shouldPlay = anomalyReady
-            && !lookedBackDuringCurrentCue
-            && viewSwitcher != null
-            && !viewSwitcher.IsLookingBack
-            && !viewSwitcher.IsTurning
             && IsGameplayActive();
         float targetVolume = shouldPlay ? GetCorridorVoiceTargetVolume() : 0f;
 
         corridorVoiceSource.transform.position = corridorSoundPosition;
         if (targetVolume > 0.001f && !corridorVoiceSource.isPlaying)
         {
-            corridorVoiceSource.clip = corridorVoiceLoopClip;
+            corridorVoiceSource.clip = voiceClip;
             corridorVoiceSource.loop = true;
             corridorVoiceSource.volume = 0f;
             corridorVoiceSource.Play();
@@ -662,7 +762,7 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
             return;
         }
 
-        bool shouldPlay = anomalyReady && IsGameplayActive() && !IsCorridorHitPlaying();
+        bool shouldPlay = false;
         float targetVolume = shouldPlay ? slowTensionVolume : 0f;
 
         slowTensionSource.transform.position = corridorSoundPosition;
@@ -903,7 +1003,7 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
             return false;
         }
 
-        Vector3 anomalyCenter = anomalyPosition + Vector3.up * 0.72f;
+        Vector3 anomalyCenter = anomalyPosition + Vector3.up * (activeCueType == CorridorCueType.Creature ? 1.02f : 0.72f);
         Vector3 toAnomaly = anomalyCenter - flashlight.transform.position;
         float distance = toAnomaly.magnitude;
         if (distance <= 0.01f || distance > flashlight.range)
@@ -915,10 +1015,13 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         return angle <= Mathf.Min(anomalyRevealAngle, flashlight.spotAngle * 0.5f);
     }
 
-    private void UpdateAnomalyEyes()
+    private void UpdateActiveAnomalyVisuals()
     {
         bool lookingBack = viewSwitcher != null && viewSwitcher.IsLookingBack;
-        bool canShowEyes = anomalyReady && lookingBack && ShouldShowAnomalyEyesNow();
+        bool canShowEyes = anomalyReady
+            && activeCueType == CorridorCueType.Eyes
+            && lookingBack
+            && ShouldShowAnomalyEyesNow();
 
         if (canShowEyes)
         {
@@ -931,6 +1034,11 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
 
         if (!eyesVisible || eyeTransforms == null || eyeBaseScales == null)
         {
+            if (anomalyVisible && anomalyRoot != null && anomalyRoot.activeInHierarchy)
+            {
+                AnimateAnomalyVisuals(Time.time, 0.18f);
+            }
+
             return;
         }
 
@@ -949,6 +1057,11 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
 
     private bool ShouldShowAnomalyEyesNow()
     {
+        if (activeCueType != CorridorCueType.Eyes)
+        {
+            return false;
+        }
+
         if (flashlightOn)
         {
             return IsAnomalyInsideFlashlightCone();
@@ -989,11 +1102,24 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         eyesVisible = false;
     }
 
+    private void HideCreature()
+    {
+        if (anomalyRoot != null)
+        {
+            anomalyRoot.SetActive(false);
+            anomalyRoot.transform.position = anomalyPosition;
+            anomalyRoot.transform.localScale = Vector3.one;
+            anomalyRoot.transform.localRotation = Quaternion.identity;
+            ResetAnomalyVisualPose();
+        }
+    }
+
     private void EnsureAnomaly()
     {
         if (anomalyRoot != null)
         {
             anomalyRoot.SetActive(false);
+            CacheAnomalyVisuals();
             return;
         }
 
@@ -1003,11 +1129,39 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         anomalyRoot.tag = "Anomaly";
 
         Material shadowMaterial = CreateAnomalyMaterial();
-        CreateAnomalyPart("Anomaly_Body", PrimitiveType.Capsule, new Vector3(0f, 0.62f, 0f), new Vector3(0.34f, 0.88f, 0.22f), shadowMaterial);
-        CreateAnomalyPart("Anomaly_Head", PrimitiveType.Sphere, new Vector3(0f, 1.25f, 0.015f), new Vector3(0.26f, 0.30f, 0.24f), shadowMaterial);
-        CreateAnomalyPart("Anomaly_LeftArm", PrimitiveType.Cube, new Vector3(-0.25f, 0.74f, 0.015f), new Vector3(0.09f, 0.62f, 0.08f), shadowMaterial);
-        CreateAnomalyPart("Anomaly_RightArm", PrimitiveType.Cube, new Vector3(0.25f, 0.74f, 0.015f), new Vector3(0.09f, 0.62f, 0.08f), shadowMaterial);
-        CreateAnomalyPart("Anomaly_LeanShadow", PrimitiveType.Cube, new Vector3(0.08f, 0.28f, -0.035f), new Vector3(0.38f, 0.20f, 0.055f), shadowMaterial);
+        Material edgeMaterial = CreateAnomalyEdgeMaterial();
+        Material eyeMaterial = CreateEyeMaterial();
+        Material mouthMaterial = CreateAnomalyMouthMaterial();
+
+        CreateAnomalyPart("Anomaly_Spine", PrimitiveType.Capsule, new Vector3(0.020f, 0.660f, 0.000f), new Vector3(0.230f, 1.040f, 0.145f), shadowMaterial, new Vector3(0f, 0f, -4f));
+        CreateAnomalyPart("Anomaly_RibCage", PrimitiveType.Sphere, new Vector3(0.000f, 0.850f, 0.018f), new Vector3(0.430f, 0.540f, 0.170f), shadowMaterial, new Vector3(0f, 0f, 3f));
+        CreateAnomalyPart("Anomaly_HollowBelly", PrimitiveType.Cube, new Vector3(0.018f, 0.460f, 0.038f), new Vector3(0.300f, 0.380f, 0.070f), edgeMaterial, new Vector3(0f, 0f, -2f));
+        CreateAnomalyPart("Anomaly_ShoulderHunch", PrimitiveType.Cube, new Vector3(0.000f, 1.115f, -0.010f), new Vector3(0.780f, 0.135f, 0.125f), shadowMaterial, new Vector3(0f, 0f, -1f));
+        CreateAnomalyPart("Anomaly_Neck", PrimitiveType.Capsule, new Vector3(0.000f, 1.245f, 0.020f), new Vector3(0.115f, 0.300f, 0.090f), shadowMaterial, new Vector3(0f, 0f, 5f));
+        CreateAnomalyPart("Anomaly_Head", PrimitiveType.Sphere, new Vector3(0.000f, 1.430f, 0.060f), new Vector3(0.300f, 0.365f, 0.225f), shadowMaterial, new Vector3(4f, 0f, -3f));
+        CreateAnomalyPart("Anomaly_Jaw", PrimitiveType.Cube, new Vector3(0.012f, 1.235f, 0.105f), new Vector3(0.225f, 0.150f, 0.070f), shadowMaterial, new Vector3(6f, 0f, -2f));
+        CreateAnomalyPart("Anomaly_MouthGlow", PrimitiveType.Cube, new Vector3(0.015f, 1.250f, 0.148f), new Vector3(0.142f, 0.032f, 0.026f), mouthMaterial, new Vector3(0f, 0f, -2f));
+        CreateAnomalyPart("Anomaly_LeftEye", PrimitiveType.Sphere, new Vector3(-0.073f, 1.470f, 0.190f), new Vector3(0.046f, 0.035f, 0.020f), eyeMaterial);
+        CreateAnomalyPart("Anomaly_RightEye", PrimitiveType.Sphere, new Vector3(0.073f, 1.470f, 0.190f), new Vector3(0.046f, 0.035f, 0.020f), eyeMaterial);
+
+        CreateAnomalyPart("Anomaly_LeftUpperArm", PrimitiveType.Cube, new Vector3(-0.350f, 0.900f, 0.012f), new Vector3(0.105f, 0.620f, 0.082f), shadowMaterial, new Vector3(0f, 0f, -22f));
+        CreateAnomalyPart("Anomaly_LeftForearm", PrimitiveType.Cube, new Vector3(-0.485f, 0.420f, 0.050f), new Vector3(0.082f, 0.650f, 0.070f), shadowMaterial, new Vector3(0f, 0f, -8f));
+        CreateAnomalyPart("Anomaly_RightUpperArm", PrimitiveType.Cube, new Vector3(0.350f, 0.900f, 0.012f), new Vector3(0.105f, 0.620f, 0.082f), shadowMaterial, new Vector3(0f, 0f, 22f));
+        CreateAnomalyPart("Anomaly_RightForearm", PrimitiveType.Cube, new Vector3(0.485f, 0.420f, 0.050f), new Vector3(0.082f, 0.650f, 0.070f), shadowMaterial, new Vector3(0f, 0f, 8f));
+
+        CreateClaw("Anomaly_LeftClaw", new Vector3(-0.520f, 0.090f, 0.072f), -1f, edgeMaterial);
+        CreateClaw("Anomaly_RightClaw", new Vector3(0.520f, 0.090f, 0.072f), 1f, edgeMaterial);
+        CreateBackSpikes(edgeMaterial);
+
+        anomalyGlowLight = anomalyRoot.AddComponent<Light>();
+        anomalyGlowLight.type = LightType.Point;
+        anomalyGlowLight.color = new Color(0.420f, 0.070f, 0.820f);
+        anomalyGlowLight.intensity = 0.0f;
+        anomalyGlowLight.range = 1.05f;
+        anomalyGlowLight.shadows = LightShadows.None;
+        anomalyGlowLight.lightmapBakeType = LightmapBakeType.Realtime;
+
+        CacheAnomalyVisuals();
         anomalyRoot.SetActive(false);
     }
 
@@ -1079,12 +1233,40 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         }
     }
 
-    private void CreateAnomalyPart(string partName, PrimitiveType primitive, Vector3 localPosition, Vector3 localScale, Material material)
+    private void CreateClaw(string clawName, Vector3 palmPosition, float side, Material material)
+    {
+        CreateAnomalyPart(clawName + "_Palm", PrimitiveType.Cube, palmPosition, new Vector3(0.108f, 0.050f, 0.052f), material, new Vector3(0f, 0f, side * 5f));
+        for (int i = 0; i < 4; i++)
+        {
+            float spread = (i - 1.5f) * 0.034f;
+            Vector3 fingerPosition = palmPosition + new Vector3(side * (0.034f + i * 0.012f), -0.092f, 0.020f + spread);
+            CreateAnomalyPart(clawName + "_Finger_" + i.ToString("00"), PrimitiveType.Cube, fingerPosition, new Vector3(0.020f, 0.190f + i * 0.012f, 0.018f), material, new Vector3(side * 9f, 0f, side * (8f + i * 5f)));
+        }
+    }
+
+    private void CreateBackSpikes(Material material)
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            float t = i / 4f;
+            Vector3 position = new Vector3(Mathf.Lerp(-0.220f, 0.220f, t), Mathf.Lerp(1.050f, 0.530f, t), -0.100f);
+            Vector3 scale = new Vector3(0.050f, Mathf.Lerp(0.180f, 0.105f, t), 0.044f);
+            CreateAnomalyPart("Anomaly_BackSpike_" + i.ToString("00"), PrimitiveType.Cube, position, scale, material, new Vector3(Mathf.Lerp(-18f, 18f, t), 0f, Mathf.Lerp(-32f, 32f, t)));
+        }
+    }
+
+    private GameObject CreateAnomalyPart(string partName, PrimitiveType primitive, Vector3 localPosition, Vector3 localScale, Material material)
+    {
+        return CreateAnomalyPart(partName, primitive, localPosition, localScale, material, Vector3.zero);
+    }
+
+    private GameObject CreateAnomalyPart(string partName, PrimitiveType primitive, Vector3 localPosition, Vector3 localScale, Material material, Vector3 localEulerAngles)
     {
         GameObject part = GameObject.CreatePrimitive(primitive);
         part.name = partName;
         part.transform.SetParent(anomalyRoot.transform, false);
         part.transform.localPosition = localPosition;
+        part.transform.localRotation = Quaternion.Euler(localEulerAngles);
         part.transform.localScale = localScale;
 
         Renderer partRenderer = part.GetComponent<Renderer>();
@@ -1098,6 +1280,109 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         {
             Destroy(partCollider);
         }
+
+        return part;
+    }
+
+    private void CacheAnomalyVisuals()
+    {
+        if (anomalyRoot == null)
+        {
+            anomalyPartTransforms = null;
+            anomalyPartBasePositions = null;
+            anomalyPartBaseScales = null;
+            anomalyPartBaseRotations = null;
+            anomalyRenderers = null;
+            anomalyGlowLight = null;
+            return;
+        }
+
+        Transform[] allTransforms = anomalyRoot.GetComponentsInChildren<Transform>(true);
+        var transforms = new List<Transform>();
+        foreach (Transform child in allTransforms)
+        {
+            if (child != null && child != anomalyRoot.transform)
+            {
+                transforms.Add(child);
+            }
+        }
+
+        anomalyPartTransforms = transforms.ToArray();
+        anomalyPartBasePositions = new Vector3[anomalyPartTransforms.Length];
+        anomalyPartBaseScales = new Vector3[anomalyPartTransforms.Length];
+        anomalyPartBaseRotations = new Quaternion[anomalyPartTransforms.Length];
+        for (int i = 0; i < anomalyPartTransforms.Length; i++)
+        {
+            anomalyPartBasePositions[i] = anomalyPartTransforms[i].localPosition;
+            anomalyPartBaseScales[i] = anomalyPartTransforms[i].localScale;
+            anomalyPartBaseRotations[i] = anomalyPartTransforms[i].localRotation;
+        }
+
+        anomalyRenderers = anomalyRoot.GetComponentsInChildren<Renderer>(true);
+        anomalyGlowLight = anomalyRoot.GetComponent<Light>();
+    }
+
+    private void ResetAnomalyVisualPose()
+    {
+        if (anomalyPartTransforms == null || anomalyPartBasePositions == null || anomalyPartBaseScales == null || anomalyPartBaseRotations == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < anomalyPartTransforms.Length; i++)
+        {
+            Transform part = anomalyPartTransforms[i];
+            if (part == null)
+            {
+                continue;
+            }
+
+            part.localPosition = anomalyPartBasePositions[i];
+            part.localScale = anomalyPartBaseScales[i];
+            part.localRotation = anomalyPartBaseRotations[i];
+        }
+
+        if (anomalyGlowLight != null)
+        {
+            anomalyGlowLight.intensity = 0f;
+        }
+    }
+
+    private void AnimateAnomalyVisuals(float time, float intensity)
+    {
+        if (anomalyPartTransforms == null || anomalyPartBasePositions == null || anomalyPartBaseScales == null || anomalyPartBaseRotations == null)
+        {
+            return;
+        }
+
+        float clampedIntensity = Mathf.Clamp01(intensity);
+        for (int i = 0; i < anomalyPartTransforms.Length; i++)
+        {
+            Transform part = anomalyPartTransforms[i];
+            if (part == null)
+            {
+                continue;
+            }
+
+            float seed = i * 1.371f;
+            float snap = Mathf.PerlinNoise(time * 22f + seed, anomalyCueCount * 0.137f) - 0.5f;
+            float twitch = Mathf.Sin(time * (26f + i * 0.43f) + seed) * clampedIntensity;
+            Vector3 offset = new Vector3(
+                snap * 0.016f,
+                Mathf.Sin(time * 31f + seed) * 0.010f,
+                Mathf.Sin(time * 19f + seed) * 0.012f
+            ) * clampedIntensity;
+            part.localPosition = anomalyPartBasePositions[i] + offset;
+            part.localRotation = anomalyPartBaseRotations[i] * Quaternion.Euler(twitch * 3.7f, snap * 6.2f, twitch * 4.8f);
+
+            float stretch = 1f + Mathf.Sin(time * 18f + seed) * 0.055f * clampedIntensity;
+            part.localScale = Vector3.Scale(anomalyPartBaseScales[i], new Vector3(1f + snap * 0.045f * clampedIntensity, stretch, 1f));
+        }
+
+        if (anomalyGlowLight != null)
+        {
+            anomalyGlowLight.intensity = Mathf.Lerp(0.01f, 0.20f, clampedIntensity) + Mathf.Abs(Mathf.Sin(time * 23f)) * 0.035f * clampedIntensity;
+        }
     }
 
     private Material CreateAnomalyMaterial()
@@ -1109,7 +1394,7 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         }
 
         var material = new Material(shader);
-        Color color = new Color(0.003f, 0.002f, 0.007f, 1f);
+        Color color = new Color(0.012f, 0.005f, 0.026f, 1f);
         if (material.HasProperty("_BaseColor"))
         {
             material.SetColor("_BaseColor", color);
@@ -1121,7 +1406,63 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
 
         if (material.HasProperty("_EmissionColor"))
         {
-            material.SetColor("_EmissionColor", new Color(0.035f, 0.008f, 0.065f) * 0.35f);
+            material.SetColor("_EmissionColor", new Color(0.220f, 0.025f, 0.520f) * 0.18f);
+            material.EnableKeyword("_EMISSION");
+        }
+
+        return material;
+    }
+
+    private Material CreateAnomalyEdgeMaterial()
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null)
+        {
+            shader = Shader.Find("Standard");
+        }
+
+        var material = new Material(shader);
+        Color color = new Color(0.090f, 0.012f, 0.190f, 1f);
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+        else if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
+
+        if (material.HasProperty("_EmissionColor"))
+        {
+            material.SetColor("_EmissionColor", new Color(0.520f, 0.050f, 0.900f) * 0.28f);
+            material.EnableKeyword("_EMISSION");
+        }
+
+        return material;
+    }
+
+    private Material CreateAnomalyMouthMaterial()
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null)
+        {
+            shader = Shader.Find("Standard");
+        }
+
+        var material = new Material(shader);
+        Color color = new Color(0.720f, 0.040f, 0.135f, 1f);
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+        else if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
+
+        if (material.HasProperty("_EmissionColor"))
+        {
+            material.SetColor("_EmissionColor", color * 1.15f);
             material.EnableKeyword("_EMISSION");
         }
 
@@ -1303,8 +1644,73 @@ public class CorridorFlashlightAnomalyController : MonoBehaviour
         slowTensionClip = slowTensionClip != null ? slowTensionClip : LoadSfxClip("sfx_slow_tension_custom", "freesound_community-slow-scream-98485", "sfx_slow_stream", "sfx_tension_drone");
         corridorWhisperClip = corridorWhisperClip != null ? corridorWhisperClip : LoadSfxClip("sfx_corridor_whisper");
         corridorNoiseClip = corridorNoiseClip != null ? corridorNoiseClip : LoadSfxClip("sfx_corridor_noise");
-        anomalyLaughClip = anomalyLaughClip != null ? anomalyLaughClip : LoadSfxClip("sfx_anomaly_laugh");
+        if (anomalyLaughClips == null || anomalyLaughClips.Length == 0)
+        {
+            anomalyLaughClips = LoadSfxClips(
+                "sfx_anomaly_laugh_01_custom",
+                "sfx_anomaly_laugh_02_custom",
+                "sfx_anomaly_laugh_03_custom"
+            );
+        }
+
+        anomalyLaughClip = anomalyLaughClip != null ? anomalyLaughClip : LoadSfxClip("sfx_anomaly_laugh_01_custom", "sfx_anomaly_laugh");
         jumpscareClip = jumpscareClip != null ? jumpscareClip : LoadSfxClip("sfx_jumpscare");
+    }
+
+    private AudioClip GetRandomAnomalyLaughClip()
+    {
+        if (anomalyLaughClips != null && anomalyLaughClips.Length > 0)
+        {
+            int validCount = 0;
+            for (int i = 0; i < anomalyLaughClips.Length; i++)
+            {
+                if (anomalyLaughClips[i] != null)
+                {
+                    validCount++;
+                }
+            }
+
+            if (validCount > 0)
+            {
+                int targetIndex = Random.Range(0, validCount);
+                for (int i = 0; i < anomalyLaughClips.Length; i++)
+                {
+                    if (anomalyLaughClips[i] == null)
+                    {
+                        continue;
+                    }
+
+                    if (targetIndex == 0)
+                    {
+                        return anomalyLaughClips[i];
+                    }
+
+                    targetIndex--;
+                }
+            }
+        }
+
+        return anomalyLaughClip != null ? anomalyLaughClip : generatedAnomalyLaughClip;
+    }
+
+    private AudioClip[] LoadSfxClips(params string[] clipNames)
+    {
+        var clips = new List<AudioClip>();
+        if (clipNames == null)
+        {
+            return clips.ToArray();
+        }
+
+        foreach (string clipName in clipNames)
+        {
+            AudioClip clip = LoadSfxClip(clipName);
+            if (clip != null && !clips.Contains(clip))
+            {
+                clips.Add(clip);
+            }
+        }
+
+        return clips.ToArray();
     }
 
     private AudioClip LoadSfxClip(params string[] clipNames)

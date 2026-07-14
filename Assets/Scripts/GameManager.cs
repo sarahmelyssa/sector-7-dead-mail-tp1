@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -14,6 +15,7 @@ public class GameManager : MonoBehaviour
 {
     public int quotaNecessaria = 3;
     [SerializeField] private int maxWrongDecisions = 3;
+    [SerializeField] private float victorySequenceDelay = 2.25f;
 
     public int quotaAtual { get; private set; }
     public int dangerLevel => 0;
@@ -27,6 +29,7 @@ public class GameManager : MonoBehaviour
     private GameObject endScreen;
     private Text endScreenText;
     private int wrongDecisionCount;
+    private Coroutine victorySequenceRoutine;
 
     private void Awake()
     {
@@ -90,8 +93,29 @@ public class GameManager : MonoBehaviour
 
         CurrentState = GameState.Victory;
         StopGameplaySystems();
-        AudioManager.Instance?.PlayVictory();
+        if (victorySequenceRoutine != null)
+        {
+            StopCoroutine(victorySequenceRoutine);
+        }
 
+        victorySequenceRoutine = StartCoroutine(PlayVictorySequenceAfterDelay());
+    }
+
+    private IEnumerator PlayVictorySequenceAfterDelay()
+    {
+        float delay = Mathf.Max(0f, victorySequenceDelay);
+        if (delay > 0f)
+        {
+            yield return new WaitForSecondsRealtime(delay);
+        }
+
+        AudioManager.Instance?.PlayVictory();
+        PlayVictoryEndFlow();
+        victorySequenceRoutine = null;
+    }
+
+    private void PlayVictoryEndFlow()
+    {
         EndGameFlowManager endFlow = EndGameFlowManager.Instance != null ? EndGameFlowManager.Instance : Object.FindFirstObjectByType<EndGameFlowManager>();
         if (endFlow != null)
         {
@@ -111,21 +135,14 @@ public class GameManager : MonoBehaviour
     {
         CurrentState = GameState.Victory;
         StopGameplaySystems();
-        AudioManager.Instance?.PlayVictory();
+        if (victorySequenceRoutine != null)
+        {
+            StopCoroutine(victorySequenceRoutine);
+            victorySequenceRoutine = null;
+        }
 
-        EndGameFlowManager endFlow = EndGameFlowManager.Instance != null ? EndGameFlowManager.Instance : Object.FindFirstObjectByType<EndGameFlowManager>();
-        if (endFlow != null)
-        {
-            endFlow.PlayWinSequenceWithVideo();
-        }
-        else if (UIManager.Instance != null)
-        {
-            UIManager.Instance.ShowVictory();
-        }
-        else
-        {
-            ShowEndScreen("FIM DO TURNO\n\nVocê sobreviveu ao turno.\n\nPressione R para reiniciar.");
-        }
+        AudioManager.Instance?.PlayVictory();
+        PlayVictoryEndFlow();
     }
 
     public void DebugJumpToOnePackageBeforeVictory()

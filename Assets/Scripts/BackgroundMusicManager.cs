@@ -8,7 +8,9 @@ public class BackgroundMusicManager : MonoBehaviour
     public static BackgroundMusicManager Instance { get; private set; }
 
     private const string MenuMusicResourcePath = "Audio/Music/music_menu_loop";
-    private const string GameplayMusicResourcePath = "Audio/Music/music_gameplay_user_loop";
+    private const string GameplayMusicResourcePath = "Audio/Music/factory_sound";
+    private const string LegacyGameplayMusicResourcePath = "Audio/Music/music_gameplay_user_loop";
+    private const string DefaultGameplayMusicResourcePath = "Audio/Music/music_gameplay_loop";
     private const string BackgroundLoopResourcePath = "Audio/Music/music_background_loop";
 
     [Header("Sources")]
@@ -19,7 +21,7 @@ public class BackgroundMusicManager : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float masterVolume = 1f;
     [SerializeField, Range(0f, 1f)] private float musicVolume = 0.78f;
     [SerializeField, Range(0f, 1f)] private float menuTrackVolume = 0.22f;
-    [SerializeField, Range(0f, 1f)] private float gameplayTrackVolume = 0.075f;
+    [SerializeField, Range(0f, 1f)] private float gameplayTrackVolume = 0.32f;
     [SerializeField] private float fadeDuration = 1.35f;
 
     [Header("Clips")]
@@ -340,7 +342,20 @@ public class BackgroundMusicManager : MonoBehaviour
         generatedGameplayMusicClip = CreateGeneratedMusicClip("Generated Gameplay Music Loop", false);
         backgroundLoopClip = Resources.Load<AudioClip>(BackgroundLoopResourcePath);
         menuMusicClip = menuMusicClip != null ? menuMusicClip : backgroundLoopClip != null ? backgroundLoopClip : Resources.Load<AudioClip>(MenuMusicResourcePath);
-        gameplayMusicClip = gameplayMusicClip != null ? gameplayMusicClip : Resources.Load<AudioClip>(GameplayMusicResourcePath);
+        if (gameplayMusicClip == null)
+        {
+            gameplayMusicClip = Resources.Load<AudioClip>(GameplayMusicResourcePath);
+        }
+
+        if (gameplayMusicClip == null)
+        {
+            gameplayMusicClip = Resources.Load<AudioClip>(LegacyGameplayMusicResourcePath);
+        }
+
+        if (gameplayMusicClip == null)
+        {
+            gameplayMusicClip = Resources.Load<AudioClip>(DefaultGameplayMusicResourcePath);
+        }
     }
 
     private AudioClip CreateGeneratedMusicClip(string clipName, bool menu)

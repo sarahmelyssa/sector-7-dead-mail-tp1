@@ -11,6 +11,8 @@ public class StationStatusMonitor : MonoBehaviour
     [SerializeField] private TMP_Text wallStateText = null;
     [SerializeField] private TMP_Text wallFeedbackText = null;
     [SerializeField] private Renderer[] progressBlocks = null;
+    [SerializeField] private Renderer[] lifeHeartRenderers = null;
+    [SerializeField] private int lifeHeartPartsPerHeart = 3;
     [SerializeField] private float realSecondsPerGameHour = 60f;
 
     private GameManager gameManager;
@@ -26,13 +28,15 @@ public class StationStatusMonitor : MonoBehaviour
         resultText = result;
     }
 
-    public void SetMachinePanelTargets(TMP_Text timer, TMP_Text quota, TMP_Text state, TMP_Text feedback, Renderer[] blocks)
+    public void SetMachinePanelTargets(TMP_Text timer, TMP_Text quota, TMP_Text state, TMP_Text feedback, Renderer[] blocks, Renderer[] hearts = null, int heartPartsPerHeart = 3)
     {
         wallTimerText = timer;
         wallQuotaText = quota;
         wallStateText = state;
         wallFeedbackText = feedback;
         progressBlocks = blocks;
+        lifeHeartRenderers = hearts;
+        lifeHeartPartsPerHeart = Mathf.Max(1, heartPartsPerHeart);
     }
 
     private void OnEnable()
@@ -65,7 +69,7 @@ public class StationStatusMonitor : MonoBehaviour
         UpdateTimerDisplay();
         UpdateBoxTimerDisplay(hasPackage);
         UpdateCounterText();
-        UpdateErrorDisplay();
+        UpdateLivesDisplay();
         UpdateResultText();
     }
 
@@ -194,19 +198,71 @@ public class StationStatusMonitor : MonoBehaviour
         UpdateProgressBlocks(quota, required);
     }
 
-    private void UpdateErrorDisplay()
+    private void UpdateLivesDisplay()
     {
-        if (wallFeedbackText == null)
+        int wrong = gameManager != null ? gameManager.WrongDecisionCount : 0;
+        int maxLives = gameManager != null ? gameManager.MaxWrongDecisions : 3;
+        int livesToShow = Mathf.Clamp(maxLives, 1, 3);
+        int remainingLives = Mathf.Clamp(livesToShow - wrong, 0, livesToShow);
+
+        if (wallFeedbackText != null)
+        {
+            wallFeedbackText.richText = true;
+            wallFeedbackText.text = BuildHeartDisplay(remainingLives, livesToShow);
+            wallFeedbackText.color = Color.white;
+        }
+
+        UpdateLifeHeartRenderers(remainingLives, livesToShow);
+    }
+
+    private string BuildHeartDisplay(int remainingLives, int livesToShow)
+    {
+        const string activeHeart = "<color=#ff2748>♥</color>";
+        const string lostHeart = "<color=#3b1724>♡</color>";
+        string text = "";
+
+        for (int i = 0; i < livesToShow; i++)
+        {
+            text += i < remainingLives ? activeHeart : lostHeart;
+            if (i < livesToShow - 1)
+            {
+                text += " ";
+            }
+        }
+
+        return text;
+    }
+
+    private void UpdateLifeHeartRenderers(int remainingLives, int livesToShow)
+    {
+        if (lifeHeartRenderers == null || lifeHeartRenderers.Length == 0)
         {
             return;
         }
 
-        int wrong = gameManager != null ? gameManager.WrongDecisionCount : 0;
-        int maxWrong = gameManager != null ? gameManager.MaxWrongDecisions : 3;
-        wallFeedbackText.text = "ERROS " + wrong.ToString("0") + "/" + maxWrong.ToString("0");
-        wallFeedbackText.color = wrong > 0
-            ? new Color(0.980f, 0.340f, 0.360f)
-            : new Color(0.930f, 0.850f, 1.000f);
+        int partsPerHeart = Mathf.Max(1, lifeHeartPartsPerHeart);
+        Color activeColor = new Color(1.000f, 0.055f, 0.180f);
+        Color lostColor = new Color(0.130f, 0.025f, 0.055f);
+
+        for (int i = 0; i < lifeHeartRenderers.Length; i++)
+        {
+            Renderer heartRenderer = lifeHeartRenderers[i];
+            if (heartRenderer == null)
+            {
+                continue;
+            }
+
+            int heartIndex = i / partsPerHeart;
+            bool visible = heartIndex < livesToShow;
+            heartRenderer.gameObject.SetActive(visible);
+            if (!visible)
+            {
+                continue;
+            }
+
+            bool isActive = heartIndex < remainingLives;
+            ApplyRendererColor(heartRenderer, isActive ? activeColor : lostColor, isActive ? 2.15f : 0.18f);
+        }
     }
 
     private void UpdateResultText()
@@ -253,10 +309,7 @@ public class StationStatusMonitor : MonoBehaviour
             resultText.text = "";
         }
 
-        if (wallFeedbackText != null)
-        {
-            UpdateErrorDisplay();
-        }
+        UpdateLivesDisplay();
     }
 
     private void ApplyRendererColor(Renderer targetRenderer, Color color, float emission)

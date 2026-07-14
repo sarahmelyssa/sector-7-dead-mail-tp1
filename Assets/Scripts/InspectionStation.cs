@@ -18,7 +18,10 @@ public class InspectionStation : MonoBehaviour
 
     [Header("Evaluation Timer")]
     [SerializeField] private float boxEvaluationTime = 60f;
-    [SerializeField] private float minimumBoxEvaluationTime = 20f;
+    [SerializeField] private float minimumBoxEvaluationTime = 30f;
+
+    private const float MaxBoxEvaluationTime = 60f;
+    private const float MinBoxEvaluationTime = 30f;
 
     private PackageInteractable currentPackage;
     private bool actionsLocked = true;
@@ -40,11 +43,16 @@ public class InspectionStation : MonoBehaviour
         Instance = this;
         if (boxEvaluationTime <= 0f)
         {
-            boxEvaluationTime = 60f;
+            boxEvaluationTime = MaxBoxEvaluationTime;
         }
 
-        boxEvaluationTime = Mathf.Clamp(boxEvaluationTime, 20f, 60f);
-        minimumBoxEvaluationTime = Mathf.Clamp(minimumBoxEvaluationTime, 20f, boxEvaluationTime);
+        boxEvaluationTime = Mathf.Clamp(boxEvaluationTime, MinBoxEvaluationTime, MaxBoxEvaluationTime);
+        if (boxEvaluationTime < MaxBoxEvaluationTime)
+        {
+            boxEvaluationTime = MaxBoxEvaluationTime;
+        }
+
+        minimumBoxEvaluationTime = Mathf.Clamp(minimumBoxEvaluationTime, MinBoxEvaluationTime, boxEvaluationTime);
 
         ResolveReferences();
     }

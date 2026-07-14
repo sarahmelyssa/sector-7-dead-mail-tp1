@@ -24,7 +24,7 @@ public class AudioManager : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float reportCassetteVolume = 0.48f;
     [SerializeField, Range(0f, 1f)] private float briefingStaticVolume = 0.30f;
     [SerializeField, Range(0.05f, 1f)] private float ambienceDuckDuringBriefing = 0.42f;
-    [SerializeField, Range(0f, 1f)] private float conveyorLoopVolume = 0.46f;
+    [SerializeField, Range(0f, 1f)] private float conveyorLoopVolume = 0.58f;
     [SerializeField, Range(0f, 1f)] private float corridorIdleVolume = 0.025f;
     [SerializeField, Range(0f, 1f)] private float corridorFocusedVolume = 0.27f;
     [SerializeField] private float corridorFadeSpeed = 1.65f;
@@ -59,7 +59,6 @@ public class AudioManager : MonoBehaviour
     [Header("Game State")]
     [SerializeField] private AudioClip gameOverClip = null;
     [SerializeField] private AudioClip victoryClip = null;
-    [SerializeField] private AudioClip clockBellClip = null;
 
     [Header("UI")]
     [SerializeField] private AudioClip uiButtonHoverClip = null;
@@ -106,7 +105,6 @@ public class AudioManager : MonoBehaviour
     private AudioClip generatedCassettePlayClip;
     private AudioClip generatedCassetteStopClip;
     private AudioClip generatedStaticNoiseClip;
-    private AudioClip generatedClockBellClip;
     private float corridorTargetVolume;
     private float nextChildLaughTime;
     private float briefingCassetteFade = 1f;
@@ -165,7 +163,6 @@ public class AudioManager : MonoBehaviour
         generatedCassettePlayClip = CreateCassetteMechanicClip("Generated Cassette Play", 0.22f, 0.52f, false);
         generatedCassetteStopClip = CreateCassetteMechanicClip("Generated Cassette Stop", 0.20f, 0.48f, false);
         generatedStaticNoiseClip = CreateStaticNoiseLoopClip();
-        generatedClockBellClip = CreateClockBellClip();
 
         StartRoomAmbience();
         StartCorridorAmbience();
@@ -641,11 +638,6 @@ public class AudioManager : MonoBehaviour
         PlayUi(victoryClip != null ? victoryClip : generatedCorrectResponseClip, 0.74f);
     }
 
-    public void PlayClockBell()
-    {
-        Play(clockBellClip != null ? clockBellClip : generatedClockBellClip, 0.72f);
-    }
-
     private void Play(AudioClip clip)
     {
         Play(clip, 1f);
@@ -920,7 +912,6 @@ public class AudioManager : MonoBehaviour
         AudioClip customWrong = LoadNamedProjectAudioClip("SFX", "sfx_wrong_custom", "freesound_community-training-program-incorrect1-88736");
         correctResponseClip = customCorrect != null ? customCorrect : correctResponseClip != null ? correctResponseClip : LoadNamedProjectAudioClip("SFX", "sfx_success");
         wrongResponseClip = customWrong != null ? customWrong : wrongResponseClip != null ? wrongResponseClip : LoadNamedProjectAudioClip("SFX", "sfx_error");
-        clockBellClip = clockBellClip != null ? clockBellClip : LoadNamedProjectAudioClip("SFX", "sfx_clock_single_bell", "universfield-single-church-bell-2-352062");
         doorCreakClip = doorCreakClip != null ? doorCreakClip : LoadNamedProjectAudioClip("SFX", "sfx_door_creak_custom", "ellvdr-rechinar-de-puerta-squeaking-door-7-337113", "sfx_door_creak", "sfx_door_close");
         lookBackClip = lookBackClip != null ? lookBackClip : LoadNamedProjectAudioClip("SFX", "sfx_look_back");
         lookForwardClip = lookForwardClip != null ? lookForwardClip : LoadNamedProjectAudioClip("SFX", "sfx_look_forward");
@@ -1354,30 +1345,6 @@ public class AudioManager : MonoBehaviour
         }
 
         AudioClip clip = AudioClip.Create(clipName, sampleCount, 1, sampleRate, false);
-        clip.SetData(samples, 0);
-        return clip;
-    }
-
-    private AudioClip CreateClockBellClip()
-    {
-        const int sampleRate = 44100;
-        const float duration = 2.4f;
-        int sampleCount = Mathf.CeilToInt(sampleRate * duration);
-        var samples = new float[sampleCount];
-
-        for (int i = 0; i < sampleCount; i++)
-        {
-            float time = i / (float)sampleRate;
-            float strike = Mathf.Exp(-time * 2.45f);
-            float swell = 1f - Mathf.Exp(-time * 34f);
-            float fundamental = Mathf.Sin(2f * Mathf.PI * 392f * time) * 0.18f;
-            float octave = Mathf.Sin(2f * Mathf.PI * 784f * time) * 0.105f;
-            float minor = Mathf.Sin(2f * Mathf.PI * 932f * time) * 0.045f;
-            float hum = Mathf.Sin(2f * Mathf.PI * 98f * time) * 0.028f;
-            samples[i] = Mathf.Clamp((fundamental + octave + minor + hum) * strike * swell, -1f, 1f);
-        }
-
-        AudioClip clip = AudioClip.Create("Generated Clock Single Bell", sampleCount, 1, sampleRate, false);
         clip.SetData(samples, 0);
         return clip;
     }

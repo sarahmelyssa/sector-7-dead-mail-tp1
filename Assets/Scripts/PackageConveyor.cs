@@ -18,6 +18,11 @@ public class PackageConveyor : MonoBehaviour
     [SerializeField] private GameObject currentPackage = null;
     [SerializeField] private float moveSpeed = 1.55f;
     [SerializeField] private float arrivalPauseDuration = 0.16f;
+    [SerializeField] private bool alternateEntrySides = true;
+    [SerializeField] private bool randomizeInitialRotation = true;
+    [SerializeField] private Vector2 inspectionOffsetXRange = new Vector2(-0.24f, 0.24f);
+    [SerializeField] private Vector2 inspectionOffsetZRange = new Vector2(-0.06f, 0.08f);
+    [SerializeField] private float[] startingYawAngles = { -90f, 0f, 0f, 0f, 90f };
 
     public bool isMoving { get; private set; }
     public bool IsPackageReadyForInspection { get; private set; }
@@ -25,6 +30,10 @@ public class PackageConveyor : MonoBehaviour
 
     private Coroutine moveRoutine;
     private GameManager gameManager;
+    private bool nextPackageFromLeft = true;
+    private int spawnedPackageCount;
+    private Vector3 activeInspectionOffset = Vector3.zero;
+    private Quaternion activeStartRotation = Quaternion.identity;
 
     private void Awake()
     {
@@ -55,6 +64,7 @@ public class PackageConveyor : MonoBehaviour
             currentPackage.transform.position = entryPoint.position;
         }
 
+        currentPackage.transform.rotation = activeStartRotation;
         SetPackageInteractable(false);
         moveRoutine = StartCoroutine(MovePackageToInspectionPoint());
     }
@@ -68,7 +78,7 @@ public class PackageConveyor : MonoBehaviour
 
         SelectRouteForNextPackage();
         Vector3 position = entryPoint != null ? entryPoint.position : transform.position;
-        Quaternion rotation = entryPoint != null ? entryPoint.rotation : Quaternion.identity;
+        Quaternion rotation = activeStartRotation;
         GameObject packageObject = packageManager.CreatePackageObject(position, rotation, packageData, packagePrefab);
         ReceiveNewPackage(packageObject);
         AudioManager.Instance?.PlayPackageGenerated(packageObject.transform.position);
@@ -153,7 +163,8 @@ public class PackageConveyor : MonoBehaviour
             yield break;
         }
 
-        while (currentPackage != null && Vector3.Distance(currentPackage.transform.position, targetPoint.position) > 0.025f)
+        Vector3 targetPosition = GetTargetPosition(targetPoint);
+        while (currentPackage != null && Vector3.Distance(currentPackage.transform.position, targetPosition) > 0.025f)
         {
             if (gameManager == null)
             {
@@ -167,7 +178,7 @@ public class PackageConveyor : MonoBehaviour
 
             currentPackage.transform.position = Vector3.MoveTowards(
                 currentPackage.transform.position,
-                targetPoint.position,
+                targetPosition,
                 moveSpeed * Time.deltaTime
             );
 
@@ -178,7 +189,7 @@ public class PackageConveyor : MonoBehaviour
 
         if (currentPackage != null)
         {
-            currentPackage.transform.position = targetPoint.position;
+            currentPackage.transform.position = targetPosition;
         }
     }
 
@@ -232,8 +243,55 @@ public class PackageConveyor : MonoBehaviour
     {
         FindOrCreatePoints();
 
-        entryPoint = leftEntryPoint;
-        exitPoint = rightExitPoint;
+        bool fromLeft = !alternateEntrySides || nextPackageFromLeft;
+        entryPoint = fromLeft ? leftEntryPoint : rightEntryPoint;
+        exitPoint = fromLeft ? rightExitPoint : leftExitPoint;
+
+        if (alternateEntrySides)
+        {
+            nextPackageFromLeft = !nextPackageFromLeft;
+        }
+
+        activeInspectionOffset = new Vector3(
+            Random.Range(Mathf.Min(inspectionOffsetXRange.x, inspectionOffsetXRange.y), Mathf.Max(inspectionOffsetXRange.x, inspectionOffsetXRange.y)),
+            0f,
+            Random.Range(Mathf.Min(inspectionOffsetZRange.x, inspectionOffsetZRange.y), Mathf.Max(inspectionOffsetZRange.x, inspectionOffsetZRange.y))
+        );
+        activeStartRotation = PickInitialPackageRotation(fromLeft);
+    }
+
+    private Vector3 GetTargetPosition(Transform targetPoint)
+    {
+        if (targetPoint == null)
+        {
+            return Vector3.zero;
+        }
+
+        if (targetPoint == inspectionPoint)
+        {
+            return targetPoint.position + activeInspectionOffset;
+        }
+
+        return targetPoint.position;
+    }
+
+    private Quaternion PickInitialPackageRotation(bool fromLeft)
+    {
+        if (spawnedPackageCount == 0)
+        {
+            spawnedPackageCount++;
+            return Quaternion.identity;
+        }
+
+        spawnedPackageCount++;
+
+        if (randomizeInitialRotation && startingYawAngles != null && startingYawAngles.Length > 0)
+        {
+            float straightYaw = Mathf.Round(startingYawAngles[Random.Range(0, startingYawAngles.Length)] / 90f) * 90f;
+            return Quaternion.Euler(0f, straightYaw, 0f);
+        }
+
+        return Quaternion.identity;
     }
 
     private Transform FindOrCreatePoint(string pointName, Vector3 fallbackPosition)

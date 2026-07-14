@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class InspectionRoomBuilder : MonoBehaviour
 {
-    private const string InspectionViewVersionMarkerName = "InspectionView_v49";
+    private const string InspectionViewVersionMarkerName = "InspectionView_v51";
 
     [SerializeField] private bool buildOnAwake = true;
     [SerializeField] private Transform packageSpawnPoint = null;
@@ -285,17 +285,27 @@ public class InspectionRoomBuilder : MonoBehaviour
         quotaText.outlineWidth = 0.20f;
         ConfigureTextBox(quotaText, new Vector2(4.28f, 0.38f), TextAlignmentOptions.Left);
 
-        TextMeshPro stateText = CreateWorldText("ProcessingPanel_StateText", monitorRoot.transform, "CAIXA 60s", new Vector3(-2.06f, 1.50f, 2.944f), panelTextRotation, 0.520f, new Color(0.820f, 1.000f, 0.860f));
-        stateText.characterSpacing = 0.8f;
+        TextMeshPro stateText = CreateWorldText("ProcessingPanel_StateText", monitorRoot.transform, "CAIXA --", new Vector3(0.78f, 2.17f, 2.850f), panelTextRotation, 0.600f, new Color(0.820f, 1.000f, 0.860f));
+        stateText.characterSpacing = 0.2f;
         stateText.fontStyle = FontStyles.Bold;
-        stateText.outlineWidth = 0.24f;
-        ConfigureTextBox(stateText, new Vector2(4.28f, 0.46f), TextAlignmentOptions.Left);
+        stateText.outlineWidth = 0.30f;
+        ConfigureTextBox(stateText, new Vector2(1.86f, 0.78f), TextAlignmentOptions.Left);
 
-        TextMeshPro feedbackText = CreateWorldText("ProcessingPanel_ErrorsText", monitorRoot.transform, "ERROS 0/3", new Vector3(-2.06f, 1.13f, 2.944f), panelTextRotation, 0.500f, new Color(0.930f, 0.850f, 1.000f));
-        feedbackText.characterSpacing = 0.8f;
-        feedbackText.fontStyle = FontStyles.Bold;
-        feedbackText.outlineWidth = 0.24f;
-        ConfigureTextBox(feedbackText, new Vector2(4.28f, 0.44f), TextAlignmentOptions.Left);
+        TextMeshPro feedbackText = null;
+
+        Renderer[] lifeHeartRenderers = new Renderer[9];
+        int heartRendererIndex = 0;
+        for (int i = 0; i < 3; i++)
+        {
+            heartRendererIndex = CreatePanelHeartIndicator(
+                "ProcessingPanel_LifeHeart_" + i.ToString("00"),
+                monitorRoot.transform,
+                new Vector3(2.18f, 2.18f - i * 0.38f, 2.840f),
+                0.300f,
+                lifeHeartRenderers,
+                heartRendererIndex
+            );
+        }
 
         Renderer[] progressBlocks = new Renderer[10];
         for (int i = 0; i < progressBlocks.Length; i++)
@@ -311,7 +321,7 @@ public class InspectionRoomBuilder : MonoBehaviour
 
         StationStatusMonitor statusMonitor = monitorRoot.AddComponent<StationStatusMonitor>();
         statusMonitor.SetTextTargets(null, null, null);
-        statusMonitor.SetMachinePanelTargets(timerText, quotaText, stateText, feedbackText, progressBlocks);
+        statusMonitor.SetMachinePanelTargets(timerText, quotaText, stateText, feedbackText, progressBlocks, lifeHeartRenderers, 3);
     }
 
     private void BuildPackagePath(Transform root)
@@ -747,6 +757,47 @@ public class InspectionRoomBuilder : MonoBehaviour
         }
 
         return screw;
+    }
+
+    private int CreatePanelHeartIndicator(string name, Transform parent, Vector3 position, float size, Renderer[] targetRenderers, int startIndex)
+    {
+        GameObject heartRoot = new GameObject(name);
+        heartRoot.transform.SetParent(parent, false);
+        heartRoot.transform.position = position;
+
+        Color heartColor = new Color(1.000f, 0.055f, 0.180f);
+        int index = startIndex;
+        index = CreatePanelHeartPart(name + "_LeftLobe", heartRoot.transform, new Vector3(-size * 0.17f, size * 0.12f, 0f), Quaternion.identity, new Vector3(size * 0.43f, size * 0.43f, 0.040f), PrimitiveType.Sphere, heartColor, targetRenderers, index);
+        index = CreatePanelHeartPart(name + "_RightLobe", heartRoot.transform, new Vector3(size * 0.17f, size * 0.12f, 0f), Quaternion.identity, new Vector3(size * 0.43f, size * 0.43f, 0.040f), PrimitiveType.Sphere, heartColor, targetRenderers, index);
+        index = CreatePanelHeartPart(name + "_Point", heartRoot.transform, new Vector3(0f, -size * 0.07f, 0f), Quaternion.Euler(0f, 0f, 45f), new Vector3(size * 0.52f, size * 0.52f, 0.040f), PrimitiveType.Cube, heartColor, targetRenderers, index);
+        return index;
+    }
+
+    private int CreatePanelHeartPart(string name, Transform parent, Vector3 localPosition, Quaternion localRotation, Vector3 localScale, PrimitiveType primitiveType, Color color, Renderer[] targetRenderers, int index)
+    {
+        GameObject part = GameObject.CreatePrimitive(primitiveType);
+        part.name = name;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPosition;
+        part.transform.localRotation = localRotation;
+        part.transform.localScale = localScale;
+
+        Renderer renderer = part.GetComponent<Renderer>();
+        ApplyMaterial(renderer, color);
+        ApplyEmissiveColor(renderer, color, 2.15f);
+
+        Collider collider = part.GetComponent<Collider>();
+        if (collider != null)
+        {
+            Destroy(collider);
+        }
+
+        if (targetRenderers != null && index >= 0 && index < targetRenderers.Length)
+        {
+            targetRenderers[index] = renderer;
+        }
+
+        return index + 1;
     }
 
     private void CreateCorridorRivetRow(Transform parent, float x, float minY, float maxY, float z, string editorMaterialPath)
