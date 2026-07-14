@@ -1,6 +1,6 @@
 # Sector 7: Dead Mail
 
-Projeto TP1 Unity.
+Projeto TP1 Unity - entrega da epoca normal.
 
 ## Elementos do grupo
 
