@@ -59,7 +59,7 @@ public class InspectionRoomBuilder : MonoBehaviour
             }
 
             existingRoot.name = "Inspection Room Root Old";
-            Destroy(existingRoot);
+            DestroyGeneratedObject(existingRoot);
         }
 
         ClearGeneratedChildren(inspectionDeskRuntimeRoot);
@@ -102,14 +102,7 @@ public class InspectionRoomBuilder : MonoBehaviour
         for (int i = root.childCount - 1; i >= 0; i--)
         {
             GameObject child = root.GetChild(i).gameObject;
-            if (Application.isPlaying)
-            {
-                Destroy(child);
-            }
-            else
-            {
-                DestroyImmediate(child);
-            }
+            DestroyGeneratedObject(child);
         }
     }
 
@@ -629,7 +622,7 @@ public class InspectionRoomBuilder : MonoBehaviour
         accentLine.transform.localScale = new Vector3(0.165f, 0.010f, 0.010f);
         ApplyMaterial(accentLine.GetComponent<Renderer>(), GetButtonAccentColor(type));
         ApplyEmissiveColor(accentLine.GetComponent<Renderer>(), GetButtonAccentColor(type), 0.65f);
-        Destroy(accentLine.GetComponent<Collider>());
+        DestroyGeneratedObject(accentLine.GetComponent<Collider>());
 
         BoxCollider buttonCollider = buttonRoot.AddComponent<BoxCollider>();
         buttonCollider.center = new Vector3(0f, 0.045f, 0f);
@@ -734,7 +727,7 @@ public class InspectionRoomBuilder : MonoBehaviour
         Collider collider = detail.GetComponent<Collider>();
         if (collider != null)
         {
-            Destroy(collider);
+            DestroyGeneratedObject(collider);
         }
 
         return detail;
@@ -753,7 +746,7 @@ public class InspectionRoomBuilder : MonoBehaviour
         Collider collider = screw.GetComponent<Collider>();
         if (collider != null)
         {
-            Destroy(collider);
+            DestroyGeneratedObject(collider);
         }
 
         return screw;
@@ -789,7 +782,7 @@ public class InspectionRoomBuilder : MonoBehaviour
         Collider collider = part.GetComponent<Collider>();
         if (collider != null)
         {
-            Destroy(collider);
+            DestroyGeneratedObject(collider);
         }
 
         if (targetRenderers != null && index >= 0 && index < targetRenderers.Length)
@@ -819,7 +812,7 @@ public class InspectionRoomBuilder : MonoBehaviour
         quad.transform.position = position;
         quad.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
         quad.transform.localScale = scale;
-        Destroy(quad.GetComponent<Collider>());
+        DestroyGeneratedObject(quad.GetComponent<Collider>());
 
         Texture texture = Resources.Load<Texture2D>(textureResourcePath);
         Renderer renderer = quad.GetComponent<Renderer>();
@@ -1012,5 +1005,22 @@ public class InspectionRoomBuilder : MonoBehaviour
 
         material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         return material;
+    }
+
+    private void DestroyGeneratedObject(Object target)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Destroy(target);
+        }
+        else
+        {
+            DestroyImmediate(target);
+        }
     }
 }
